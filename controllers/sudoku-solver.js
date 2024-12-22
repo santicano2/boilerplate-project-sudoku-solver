@@ -1,82 +1,140 @@
+"use strict";
+
+const {
+  puzzleSettings,
+  puzzleStringToGrid,
+  gridToPuzzleString,
+  rowsLetterToNumber,
+  rowsNumberToLetter,
+  getValidationPattern,
+} = require("../utils/sudoku-solver-utils");
+
 class SudokuSolver {
-  // Validate the puzzle string
   validate(puzzleString) {
-    const validCharacters = /^[1-9.]{81}$/;
-    return validCharacters.test(puzzleString);
-  }
-
-  // Check if a value can be placed in the specified row
-  checkRowPlacement(puzzleString, row, column, value) {
-    const rowStart = row * 9;
-    const rowEnd = rowStart + 9;
-    const rowValues = puzzleString.slice(rowStart, rowEnd);
-    return !rowValues.includes(value);
-  }
-
-  // Check if a value can be placed in the specified column
-  checkColPlacement(puzzleString, row, column, value) {
-    let colValues = "";
-    for (let i = 0; i < 9; i++) {
-      colValues += puzzleString[i * 9 + column];
-    }
-    return !colValues.includes(value);
-  }
-
-  // Check if a value can be placed in the specified region
-  checkRegionPlacement(puzzleString, row, column, value) {
-    const regionRow = Math.floor(row / 3) * 3;
-    const regionCol = Math.floor(column / 3) * 3;
-    let regionValues = "";
-
-    for (let r = regionRow; r < regionRow + 3; r++) {
-      for (let c = regionCol; c < regionCol + 3; c++) {
-        regionValues += puzzleString[r * 9 + c];
-      }
+    if (!puzzleString) {
+      return {
+        ok: false,
+        error: "Required field missing",
+      };
     }
 
-    return !regionValues.includes(value);
-  }
+    if (puzzleString.length !== 81) {
+      return {
+        ok: false,
+        error: "Expected puzzle to be 81 characters long",
+      };
+    }
 
-  // Solve the Sudoku puzzle using backtracking
-  solve(puzzleString) {
-    const board = puzzleString.split("");
+    const validCharacters = getValidationPattern();
+    if (!validCharacters.test(puzzleString)) {
+      return {
+        ok: false,
+        error: "Invalid characters in puzzle",
+      };
+    }
 
-    const findEmptySpot = () => {
-      for (let i = 0; i < board.length; i++) {
-        if (board[i] === ".") return i; // Return index of empty spot
-      }
-      return -1; // No empty spots left
+    return {
+      ok: true,
+      error: null,
     };
+  }
 
-    const backtrack = () => {
-      const emptySpotIndex = findEmptySpot();
-      if (emptySpotIndex === -1) return true; // Solved
+  checkRowPlacement(puzzleString, row, column, value) {
+    const validation = this.validate(puzzleString);
+    if (!validation.ok) return validation.error;
 
-      const row = Math.floor(emptySpotIndex / 9);
-      const column = emptySpotIndex % 9;
+    const grid = puzzleStringToGrid(puzzleString);
+    const rowIndex = rowsLetterToNumber(row) - 1;
+    const colIndex = parseInt(column, 10) - 1;
+    value = parseInt(value, 10);
 
-      for (let num = 1; num <= 9; num++) {
-        const value = num.toString();
-        if (
-          this.checkRowPlacement(board.join(""), row, column, value) &&
-          this.checkColPlacement(board.join(""), row, column, value) &&
-          this.checkRegionPlacement(board.join(""), row, column, value)
-        ) {
-          board[emptySpotIndex] = value; // Place the number
+    if (grid[rowIndex][colIndex] !== 0) return false;
 
-          if (backtrack()) return true; // Continue solving
+    for (let index = 0; index < puzzleSettings.X; index++)
+      if (grid[rowIndex][index] === value) return false;
 
-          board[emptySpotIndex] = "."; // Reset on backtrack
+    return true;
+  }
+
+  checkColPlacement(puzzleString, row, column, value) {
+    const validation = this.validate(puzzleString);
+    if (!validation.ok) return validation.error;
+
+    const grid = puzzleStringToGrid(puzzleString);
+    const rowIndex = rowsLetterToNumber(row) - 1;
+    const colIndex = parseInt(column) - 1;
+    value = parseInt(value, 10);
+
+    if (grid[rowIndex][colIndex] !== 0) return false;
+
+    for (let index = 0; index < puzzleSettings.Y; index++)
+      if (grid[index][colIndex] === value) return false;
+
+    return true;
+  }
+
+  checkRegionPlacement(puzzleString, row, column, value) {
+    const validation = this.validate(puzzleString);
+    if (!validation.ok) return validation.error;
+
+    const grid = puzzleStringToGrid(puzzleString);
+    const rowIndex = rowsLetterToNumber(row) - 1;
+    const colIndex = parseInt(column) - 1;
+    value = parseInt(value, 10);
+
+    if (grid[rowIndex][colIndex] !== 0) return false;
+
+    const startRow = rowIndex - (rowIndex % puzzleSettings.Region);
+    const startCol = colIndex - (colIndex % puzzleSettings.Region);
+    for (let i = 0; i < puzzleSettings.Region; i++)
+      for (let j = 0; j < puzzleSettings.Region; j++)
+        if (grid[i + startRow][j + startCol] === value) return false;
+
+    return true;
+  }
+
+  isValidPlacement(grid, row, col, num) {
+    const puzzleString = gridToPuzzleString(grid);
+    const rowLetter = rowsNumberToLetter(row + 1);
+    const colNumber = col + 1;
+
+    return (
+      this.checkRowPlacement(puzzleString, rowLetter, colNumber, num) &&
+      this.checkColPlacement(puzzleString, rowLetter, colNumber, num) &&
+      this.checkRegionPlacement(puzzleString, rowLetter, colNumber, num)
+    );
+  }
+
+  solve(puzzleString) {
+    const grid = puzzleStringToGrid(puzzleString);
+    const solved = this.solveSudoku(grid);
+    return solved ? grid.map((row) => row.join("")).join("") : solved;
+  }
+
+  solveSudoku(grid) {
+    for (let row = 0; row < puzzleSettings.X; row++) {
+      for (let col = 0; col < puzzleSettings.Y; col++) {
+        if (grid[row][col] === 0) {
+          for (
+            let num = puzzleSettings.minValue;
+            num <= puzzleSettings.maxValue;
+            num++
+          ) {
+            if (this.isValidPlacement(grid, row, col, num)) {
+              grid[row][col] = num;
+
+              if (this.solveSudoku(grid)) {
+                return true;
+              }
+
+              grid[row][col] = 0; // Annuler la valeur si la solution n'est pas valide
+            }
+          }
+          return false; // Aucun numéro n'est possible, revenir en arrière
         }
       }
-      return false; // Trigger backtrack
-    };
-
-    if (backtrack()) {
-      return board.join("");
-    } else {
-      return false; // No solution found
     }
+    return true; // Toutes les cases sont remplies, la grille est résolue
   }
 }
 
